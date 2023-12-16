@@ -144,12 +144,16 @@ class NetMonitorPro(QMainWindow):
         self.seconds_in_minute = 60
         self.max_minute_interval = 5
         self.ping_results = deque(maxlen=self.ping_frequency * self.num_of_bars_in_chart * self.max_minute_interval * self.seconds_in_minute)  # Store last 300 minutes of data
-        self.ping_threads = []  # Keep track of all ping threads so we can shut them down
+        self.ping_threads = []  # Keep track of all ping threads, so we can shut them down
         self.start_time = datetime.datetime.now()
+
+        # Add variables to track the last update time for the 1m and 5m charts, so we only update them when needed
+        self.last_update_time_1m = datetime.datetime.now()
+        self.last_update_time_5m = datetime.datetime.now()
 
         # Initialize packet loss history for each time frame
         self.packet_loss_history_1s = deque(maxlen=self.num_of_bars_in_chart)  # each bar represents 1 second
-        self.packet_loss_history_1m = deque(maxlen=self.num_of_bars_in_chart)  # eacg bar represents 1 minute
+        self.packet_loss_history_1m = deque(maxlen=self.num_of_bars_in_chart)  # each bar represents 1 minute
         self.packet_loss_history_5m = deque(maxlen=self.num_of_bars_in_chart)  # each bar represents 5 minutes
 
         self.initChart()
@@ -303,7 +307,7 @@ class NetMonitorPro(QMainWindow):
         self.updateChart()
         self.update_runtime()
 
-    def updateChart(self):
+    def updateChart2(self):
         # Call update_history with the correct number of intervals
         self.update_history(self.packet_loss_history_1s, 1, self.num_of_bars_in_chart)
         self.update_history(self.packet_loss_history_1m, 60, self.num_of_bars_in_chart)
@@ -312,9 +316,6 @@ class NetMonitorPro(QMainWindow):
         # Set initial y-axis limits and titles
         for i, ax in enumerate(self.axes):
             ax.clear() # Clear existing data
-
-            #ax.set_autoscale_on(True)
-            #ax.set_ylim(bottom=0)  # Set the minimum y-axis value to 0, but let the graph still auto size
 
             if i == 0:
                 ax.set_title("1-Second Intervals")
@@ -344,6 +345,37 @@ class NetMonitorPro(QMainWindow):
         # Update chart
         self.canvas.draw()
 
+    def updateChart(self):
+        current_time = datetime.datetime.now()
+
+        # Update the 1-second interval chart
+        self.update_history(self.packet_loss_history_1s, 1, self.num_of_bars_in_chart)
+        self.axes[0].clear()
+        plotable_packet_loss_history_1s = [0 if x == None else x for x in list(self.packet_loss_history_1s)]
+        self.axes[0].bar(range(len(self.packet_loss_history_1s)), plotable_packet_loss_history_1s, color='b')
+        self.axes[0].set_title("1-Second Intervals")
+
+        # Update the 1-minute interval chart only if a minute has passed
+        if (current_time - self.last_update_time_1m).total_seconds() >= 60:
+            self.update_history(self.packet_loss_history_1m, 60, self.num_of_bars_in_chart)
+            self.axes[1].clear()
+            plotable_packet_loss_history_1m = [0 if x == None else x for x in list(self.packet_loss_history_1m)]
+            self.axes[1].bar(range(len(self.packet_loss_history_1m)), plotable_packet_loss_history_1m, color='g')
+            self.axes[1].set_title("1-Minute Intervals")
+            self.last_update_time_1m = current_time
+
+        # Update the 5-minute interval chart only if five minutes have passed
+        if (current_time - self.last_update_time_5m).total_seconds() >= 300:
+            self.update_history(self.packet_loss_history_5m, 300, self.num_of_bars_in_chart)
+            self.axes[2].clear()
+            plotable_packet_loss_history_5m = [0 if x == None else x for x in list(self.packet_loss_history_5m)]
+            self.axes[2].bar(range(len(self.packet_loss_history_5m)), plotable_packet_loss_history_5m, color='r')
+            self.axes[2].set_title("5-Minute Intervals")
+            self.last_update_time_5m = current_time
+
+        # Adjust layout and redraw chart
+        self.figure.tight_layout(pad=3.0)
+        self.canvas.draw()
 
     def wrapper_update_metrics(self, result):
         QApplication.instance().postEvent(self, CustomEvent(result))
