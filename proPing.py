@@ -270,12 +270,33 @@ class NetMonitorPro(QMainWindow):
         main_layout.addLayout(runtime_layout)
 
     def initChart(self):
-        # Initialize Matplotlib figure and axes
-        self.figure, self.axes = plt.subplots(3, 1, figsize=(5, 4))  # Three subplots for 1s, 1m, and 5m intervals
-        self.canvas = FigureCanvas(self.figure)
+        # Initialize Matplotlib figure and axes for three subplots
+        self.figure, self.axes = plt.subplots(3, 1, figsize=(5, 4))
 
-        # Initial drawing of the bar charts
-        self.updateChart()
+        # Create bar plot objects
+        self.bar_plot_1s = self.axes[0].bar(range(self.num_of_bars_in_chart), [0] * self.num_of_bars_in_chart, color='b')
+        self.bar_plot_1m = self.axes[1].bar(range(self.num_of_bars_in_chart), [0] * self.num_of_bars_in_chart, color='g')
+        self.bar_plot_5m = self.axes[2].bar(range(self.num_of_bars_in_chart), [0] * self.num_of_bars_in_chart, color='r')
+
+        # Set initial y-axis limits and titles
+        for i, ax in enumerate(self.axes):
+            if i == 0:
+                ax.set_title("1-Second Intervals")
+                # Set y-axis ticks for 1-second intervals
+                ax.yaxis.set_major_locator(ticker.LinearLocator(numticks=3))
+            elif i == 1:
+                ax.set_title("1-Minute Intervals")
+                # Set y-axis ticks for 1-minute intervals
+                ax.yaxis.set_major_locator(ticker.LinearLocator(numticks=3))  # For example, 6 ticks
+            else:
+                ax.set_title("5-Minute Intervals")
+                # Set x-axis ticks for 5-minute intervals
+                ax.yaxis.set_major_locator(ticker.LinearLocator(numticks=3))  # For example, 6 ticks
+
+        # Apply tight_layout with increased padding
+        self.figure.tight_layout(pad=3.0, h_pad=1.5, w_pad=1.0)  # Adjust padding as needed
+
+        self.canvas = FigureCanvas(self.figure)
 
     def update_runtime(self):
         # Calculate uptime
@@ -312,32 +333,33 @@ class NetMonitorPro(QMainWindow):
 
         # Update the 1-second interval chart
         self.update_history(self.packet_loss_history_1s, 1, self.num_of_bars_in_chart)
-        self.axes[0].clear()
         plotable_packet_loss_history_1s = [0 if x == None else x for x in list(self.packet_loss_history_1s)]
-        self.axes[0].bar(range(len(self.packet_loss_history_1s)), plotable_packet_loss_history_1s, color='b')
-        self.axes[0].set_title("1-Second Intervals")
+        for rect, h in zip(self.bar_plot_1s, plotable_packet_loss_history_1s):
+            rect.set_height(h)
+        self.axes[0].set_ylim(0, max(plotable_packet_loss_history_1s) + 1)  # Adjust y-axis
 
         # Update the 1-minute interval chart only if a minute has passed
         if (current_time - self.last_update_time_1m).total_seconds() >= 60:
             self.update_history(self.packet_loss_history_1m, 60, self.num_of_bars_in_chart)
-            self.axes[1].clear()
             plotable_packet_loss_history_1m = [0 if x == None else x for x in list(self.packet_loss_history_1m)]
-            self.axes[1].bar(range(len(self.packet_loss_history_1m)), plotable_packet_loss_history_1m, color='g')
-            self.axes[1].set_title("1-Minute Intervals")
+            for rect, h in zip(self.bar_plot_1m, plotable_packet_loss_history_1m):
+                rect.set_height(h)
+            self.axes[1].set_ylim(0, max(plotable_packet_loss_history_1m) + 1)  # Adjust y-axis
             self.last_update_time_1m = current_time
 
         # Update the 5-minute interval chart only if five minutes have passed
         if (current_time - self.last_update_time_5m).total_seconds() >= 300:
             self.update_history(self.packet_loss_history_5m, 300, self.num_of_bars_in_chart)
-            self.axes[2].clear()
-            plotable_packet_loss_history_5m = [0 if x == None else x for x in list(self.packet_loss_history_5m)]
-            self.axes[2].bar(range(len(self.packet_loss_history_5m)), plotable_packet_loss_history_5m, color='r')
-            self.axes[2].set_title("5-Minute Intervals")
+            plotable_packet_loss_history_5m = [0 if x is None else x for x in list(self.packet_loss_history_5m)]
+            for rect, h in zip(self.bar_plot_5m, plotable_packet_loss_history_5m):
+                rect.set_height(h)
+            self.axes[2].set_ylim(0, max(plotable_packet_loss_history_5m) + 1)  # Adjust y-axis
             self.last_update_time_5m = current_time
 
-        # Adjust layout and redraw chart
-        self.figure.tight_layout(pad=3.0)
-        self.canvas.draw()
+        # Apply tight_layout with increased padding
+        self.figure.tight_layout(pad=3.0, h_pad=1.5, w_pad=1.0)  # Adjust padding as needed
+
+        self.canvas.draw_idle()  # Efficiently redraw only the changed elements
 
     def wrapper_update_metrics(self, result):
         QApplication.instance().postEvent(self, CustomEvent(result))
