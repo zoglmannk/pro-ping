@@ -307,44 +307,6 @@ class NetMonitorPro(QMainWindow):
         self.updateChart()
         self.update_runtime()
 
-    def updateChart2(self):
-        # Call update_history with the correct number of intervals
-        self.update_history(self.packet_loss_history_1s, 1, self.num_of_bars_in_chart)
-        self.update_history(self.packet_loss_history_1m, 60, self.num_of_bars_in_chart)
-        self.update_history(self.packet_loss_history_5m, 300, self.num_of_bars_in_chart)
-
-        # Set initial y-axis limits and titles
-        for i, ax in enumerate(self.axes):
-            ax.clear() # Clear existing data
-
-            if i == 0:
-                ax.set_title("1-Second Intervals")
-                # Set y-axis ticks for 1-second intervals
-                ax.yaxis.set_major_locator(ticker.LinearLocator(numticks=3))
-            elif i == 1:
-                ax.set_title("1-Minute Intervals")
-                # Set y-axis ticks for 1-minute intervals
-                ax.yaxis.set_major_locator(ticker.LinearLocator(numticks=3))  # For example, 6 ticks
-            else:
-                ax.set_title("5-Minute Intervals")
-                # Set x-axis ticks for 5-minute intervals
-                ax.yaxis.set_major_locator(ticker.LinearLocator(numticks=3))  # For example, 6 ticks
-
-        plotable_packet_loss_history_1s = [0 if x == None else x for x in list(self.packet_loss_history_1s)]
-        plotable_packet_loss_history_1m = [0 if x == None else x for x in list(self.packet_loss_history_1m)]
-        plotable_packet_loss_history_5m = [0 if x == None else x for x in list(self.packet_loss_history_5m)]
-
-        # Plot new data for each time frame
-        self.axes[0].bar(range(len(self.packet_loss_history_1s)), plotable_packet_loss_history_1s, color='b')
-        self.axes[1].bar(range(len(self.packet_loss_history_1m)), plotable_packet_loss_history_1m, color='g')
-        self.axes[2].bar(range(len(self.packet_loss_history_5m)), plotable_packet_loss_history_5m, color='r')
-
-        # Adjust layout to prevent overlapping and ensure visibility of the x-axis
-        self.figure.tight_layout(pad=3.0)
-
-        # Update chart
-        self.canvas.draw()
-
     def updateChart(self):
         current_time = datetime.datetime.now()
 
