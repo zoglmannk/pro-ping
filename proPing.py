@@ -59,6 +59,8 @@ class PingThread(QObject):
         self.running = False
 
 class PacketLossIndicator(QWidget):
+    clicked = pyqtSignal()
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.packet_loss = 0
@@ -75,6 +77,10 @@ class PacketLossIndicator(QWidget):
             self.packet_loss = packet_loss
             self.current_color = new_color
             self.update()  # Only update if the color actually changes
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit()
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -159,6 +165,9 @@ class NetMonitorPro(QMainWindow):
         self.initChart()
         self.initUI()
 
+        self.packet_loss_indicator.clicked.connect(self.toggle_interface)
+        self.interface_hidden = False  # Add a flag to track the state of the interface
+
 
         for n in range(self.ping_frequency):
             time.sleep(1 / self.ping_frequency)
@@ -173,6 +182,41 @@ class NetMonitorPro(QMainWindow):
         self.chart_and_label_update_timer = QTimer(self)
         self.chart_and_label_update_timer.timeout.connect(self.updateChartLabelsAndRuntime)
         self.chart_and_label_update_timer.start(1000)  # Update every 1000 milliseconds (1 second)
+
+    def toggle_interface(self):
+        if self.interface_hidden:
+            self.canvas.setVisible(True)
+            self.packet_loss_1s_label.setVisible(True)
+            self.packet_loss_1m_label.setVisible(True)
+            self.packet_loss_5m_label.setVisible(True)
+            self.chart_title_label.setVisible(True)
+            self.setMinimumSize(500, 650)  # Restore the minimum size
+            self.resize(500, 650)  # Restore the original size
+        else:
+            self.canvas.setVisible(False)
+            self.packet_loss_1s_label.setVisible(False)
+            self.packet_loss_1m_label.setVisible(False)
+            self.packet_loss_5m_label.setVisible(False)
+            self.chart_title_label.setVisible(False)
+            
+            # Calculate the size of the visible widgets
+            indicator_size = self.packet_loss_indicator.sizeHint()
+            heartbeat_size = self.heartbeat_indicator.sizeHint()
+            runtime_size = self.runtime_label.sizeHint()
+            
+            # Calculate the total height of the visible widgets with some padding
+            total_height = indicator_size.height() + heartbeat_size.height() + runtime_size.height() + 20
+            
+            # Calculate the maximum width of the visible widgets with some padding
+            max_width = max(indicator_size.width(), heartbeat_size.width(), runtime_size.width()) + 20
+            
+            # Set the minimum size of the main window to a smaller value
+            self.setMinimumSize(170, 170)
+            
+            # Resize the main window to fit the visible widgets
+            self.resize(max_width, total_height)
+        
+        self.interface_hidden = not self.interface_hidden  # Toggle the flag
 
     def closeEvent(self, event):
         # Signal the thread to stop
@@ -197,6 +241,10 @@ class NetMonitorPro(QMainWindow):
         # Set main window properties
         self.setWindowTitle('ProPing')
         self.setGeometry(300, 300, 500, 650)
+
+        chart_layout = QVBoxLayout()
+        chart_layout.setSpacing(0)
+        self.chart_layout = chart_layout  # Store a reference to the chart layout
 
         # Create central widget and layout
         central_widget = QWidget(self)
@@ -237,6 +285,7 @@ class NetMonitorPro(QMainWindow):
 
         # Add a title label for the charts
         chart_title_label = QLabel('Percent Packet Loss', self)
+        self.chart_title_label = chart_title_label  # Store a reference to the chart title label
         chart_title_label.setAlignment(Qt.AlignCenter)
         font = QFont()
         font.setPointSize(24)
@@ -329,37 +378,38 @@ class NetMonitorPro(QMainWindow):
         self.update_runtime()
 
     def updateChart(self):
-        current_time = datetime.datetime.now()
+        if not self.interface_hidden:  # Only update the charts if the interface is not hidden
+            current_time = datetime.datetime.now()
 
-        # Update the 1-second interval chart
-        self.update_history(self.packet_loss_history_1s, 1, self.num_of_bars_in_chart)
-        plotable_packet_loss_history_1s = [0 if x == None else x for x in list(self.packet_loss_history_1s)]
-        for rect, h in zip(self.bar_plot_1s, plotable_packet_loss_history_1s):
-            rect.set_height(h)
-        self.axes[0].set_ylim(0, max(plotable_packet_loss_history_1s) + 1)  # Adjust y-axis
-
-        # Update the 1-minute interval chart only if a minute has passed
-        if (current_time - self.last_update_time_1m).total_seconds() >= 60:
-            self.update_history(self.packet_loss_history_1m, 60, self.num_of_bars_in_chart)
-            plotable_packet_loss_history_1m = [0 if x == None else x for x in list(self.packet_loss_history_1m)]
-            for rect, h in zip(self.bar_plot_1m, plotable_packet_loss_history_1m):
+            # Update the 1-second interval chart
+            self.update_history(self.packet_loss_history_1s, 1, self.num_of_bars_in_chart)
+            plotable_packet_loss_history_1s = [0 if x == None else x for x in list(self.packet_loss_history_1s)]
+            for rect, h in zip(self.bar_plot_1s, plotable_packet_loss_history_1s):
                 rect.set_height(h)
-            self.axes[1].set_ylim(0, max(plotable_packet_loss_history_1m) + 1)  # Adjust y-axis
-            self.last_update_time_1m = current_time
+            self.axes[0].set_ylim(0, max(plotable_packet_loss_history_1s) + 1)  # Adjust y-axis
 
-        # Update the 5-minute interval chart only if five minutes have passed
-        if (current_time - self.last_update_time_5m).total_seconds() >= 300:
-            self.update_history(self.packet_loss_history_5m, 300, self.num_of_bars_in_chart)
-            plotable_packet_loss_history_5m = [0 if x is None else x for x in list(self.packet_loss_history_5m)]
-            for rect, h in zip(self.bar_plot_5m, plotable_packet_loss_history_5m):
-                rect.set_height(h)
-            self.axes[2].set_ylim(0, max(plotable_packet_loss_history_5m) + 1)  # Adjust y-axis
-            self.last_update_time_5m = current_time
+            # Update the 1-minute interval chart only if a minute has passed
+            if (current_time - self.last_update_time_1m).total_seconds() >= 60:
+                self.update_history(self.packet_loss_history_1m, 60, self.num_of_bars_in_chart)
+                plotable_packet_loss_history_1m = [0 if x == None else x for x in list(self.packet_loss_history_1m)]
+                for rect, h in zip(self.bar_plot_1m, plotable_packet_loss_history_1m):
+                    rect.set_height(h)
+                self.axes[1].set_ylim(0, max(plotable_packet_loss_history_1m) + 1)  # Adjust y-axis
+                self.last_update_time_1m = current_time
 
-        # Apply tight_layout with increased padding
-        self.figure.tight_layout(pad=3.0, h_pad=1.5, w_pad=1.0)  # Adjust padding as needed
+            # Update the 5-minute interval chart only if five minutes have passed
+            if (current_time - self.last_update_time_5m).total_seconds() >= 300:
+                self.update_history(self.packet_loss_history_5m, 300, self.num_of_bars_in_chart)
+                plotable_packet_loss_history_5m = [0 if x is None else x for x in list(self.packet_loss_history_5m)]
+                for rect, h in zip(self.bar_plot_5m, plotable_packet_loss_history_5m):
+                    rect.set_height(h)
+                self.axes[2].set_ylim(0, max(plotable_packet_loss_history_5m) + 1)  # Adjust y-axis
+                self.last_update_time_5m = current_time
 
-        self.canvas.draw_idle()  # Efficiently redraw only the changed elements
+            # Apply tight_layout with increased padding only when the interface is not hidden
+            self.figure.tight_layout(pad=3.0, h_pad=1.5, w_pad=1.0)  # Adjust padding as needed
+
+            self.canvas.draw_idle()  # Efficiently redraw only the changed elements
 
     def wrapper_update_metrics(self, result):
         QApplication.instance().postEvent(self, CustomEvent(result))
