@@ -10,9 +10,10 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from collections import deque
 from PyQt5.QtWidgets import QSizePolicy,  QHBoxLayout, QWidget, QLabel
 from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout
+from PyQt5.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsLineItem
 from PyQt5.QtCore import Qt, QSize, QTimer
 from PyQt5.QtCore import pyqtSignal, QObject, QEvent
-from PyQt5.QtGui import QPainter, QColor, QFont
+from PyQt5.QtGui import QPainter, QColor, QFont, QPen
 import threading
 
 class PingThread(QObject):
@@ -58,6 +59,55 @@ class PingThread(QObject):
     def stop(self):
         self.running = False
 
+
+class PacketLossGraph(QGraphicsView):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setRenderHint(QPainter.Antialiasing)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setFixedSize(120, 120)
+
+        self.setAutoFillBackground(False)
+        self.setStyleSheet("background: transparent")
+        self.setAttribute(Qt.WA_TranslucentBackground)
+
+        self.scene = QGraphicsScene(self)
+        self.scene.setSceneRect(0, 0, self.width() - 2, self.height() - 2)  # Set the scene's bounding rectangle
+        self.scene.setBackgroundBrush(QColor(0, 0, 0, 0))
+        self.setScene(self.scene)
+
+        self.scene = QGraphicsScene(self)
+        self.setScene(self.scene)
+        self.packet_loss_history = deque(maxlen=120)
+        self.line_segments = []
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.scene.setSceneRect(0, 0, self.width() - 2, self.height() - 2)  # Update the scene's bounding rectangle on resize
+
+    def add_data_point(self, packet_loss):
+        self.packet_loss_history.append(packet_loss)
+
+        height = self.height() - 20  # Adjust the height to account for the scene's bounding rectangle
+        y1 = height - (packet_loss / 100 * height)
+        y2 = height - (self.packet_loss_history[-2] / 100 * height) if len(self.packet_loss_history) > 1 else height
+
+        new_segment = QGraphicsLineItem(0, y1, 1, y2)
+        new_segment.setPen(QPen(QColor("black"), 1))
+
+        self.scene.addItem(new_segment)
+        self.line_segments.append(new_segment)
+
+        if len(self.line_segments) > 1:
+            for segment in self.line_segments[:-1]:
+                segment.moveBy(1, 0)
+
+        if len(self.line_segments) > 120:
+            self.scene.removeItem(self.line_segments[0])
+            del self.line_segments[0]
+
+
 class PacketLossIndicator(QWidget):
     clicked = pyqtSignal()
 
@@ -71,12 +121,18 @@ class PacketLossIndicator(QWidget):
         sizePolicy.setHeightForWidth(True)
         self.setSizePolicy(sizePolicy)
 
+        self.packet_loss_graph = PacketLossGraph(self)
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.packet_loss_graph)
+        self.setLayout(layout)
+
     def set_packet_loss(self, packet_loss):
         new_color = self.get_color_based_on_packet_loss(packet_loss)
         if new_color != self.current_color:
             self.packet_loss = packet_loss
             self.current_color = new_color
-            self.update()  # Only update if the color actually changes
+            self.update()
+        self.packet_loss_graph.add_data_point(packet_loss)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -153,6 +209,8 @@ class NetMonitorPro(QMainWindow):
         self.ping_threads = []  # Keep track of all ping threads, so we can shut them down
         self.start_time = datetime.datetime.now()
 
+        self.last_packet_loss_update = time.time()
+
         # Add variables to track the last update time for the 1m and 5m charts, so we only update them when needed
         self.last_update_time_1m = datetime.datetime.now()
         self.last_update_time_5m = datetime.datetime.now()
@@ -166,6 +224,7 @@ class NetMonitorPro(QMainWindow):
         self.initUI()
 
         self.packet_loss_indicator.clicked.connect(self.toggle_interface)
+        self.packet_loss_indicator.packet_loss_graph.setVisible(False)  # Hide the overlay
         self.interface_hidden = False  # Add a flag to track the state of the interface
 
 
@@ -189,6 +248,7 @@ class NetMonitorPro(QMainWindow):
             self.packet_loss_1s_label.setVisible(True)
             self.packet_loss_1m_label.setVisible(True)
             self.packet_loss_5m_label.setVisible(True)
+            self.packet_loss_indicator.packet_loss_graph.setVisible(False)  # Hide the overlay
             self.chart_title_label.setVisible(True)
             self.setMinimumSize(500, 650)  # Restore the minimum size
             self.resize(500, 650)  # Restore the original size
@@ -197,6 +257,7 @@ class NetMonitorPro(QMainWindow):
             self.packet_loss_1s_label.setVisible(False)
             self.packet_loss_1m_label.setVisible(False)
             self.packet_loss_5m_label.setVisible(False)
+            self.packet_loss_indicator.packet_loss_graph.setVisible(True) # Show the overlay
             self.chart_title_label.setVisible(False)
             
             # Calculate the size of the visible widgets
@@ -425,7 +486,10 @@ class NetMonitorPro(QMainWindow):
 
         # Update packet loss indicator color
         latest_packet_loss = self.calculate_packet_loss(1)
-        self.packet_loss_indicator.set_packet_loss(latest_packet_loss)
+        current_time = time.time()
+        if current_time - self.last_packet_loss_update >= 0.5:  # Update every 500 ms
+            self.packet_loss_indicator.set_packet_loss(latest_packet_loss)
+            self.last_packet_loss_update = current_time
 
 
     def update_history(self, history_deque, interval_seconds, num_intervals):
